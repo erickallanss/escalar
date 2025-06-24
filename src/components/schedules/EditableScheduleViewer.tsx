@@ -1,18 +1,26 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useData } from '../../contexts/DataContext';
 import { Button } from '../ui/Button';
-import { Schedule } from '../../types';
-import { SHIFT_CONFIGS, getDaysInMonth } from '../../utils/scheduleGenerator';
+import { Schedule, Assignment, ShiftType, ValidationError } from '../../types';
+import { SHIFT_CONFIGS, getDaysInMonth, validateManualEdit } from '../../utils/scheduleGenerator';
 import { exportToPDF, exportToExcel } from '../../utils/exportUtils';
-import { Edit, CheckCircle, Clock, FileText, Table } from 'lucide-react';
+import { Edit, CheckCircle, Clock, FileText, Table, Save, X, AlertTriangle } from 'lucide-react';
 
-interface ScheduleViewerProps {
+interface EditableScheduleViewerProps {
   schedule: Schedule;
+  onSave: (updatedSchedule: Schedule) => void;
   onClose: () => void;
 }
 
-export const ScheduleViewer: React.FC<ScheduleViewerProps> = ({ schedule, onClose }) => {
+export const EditableScheduleViewer: React.FC<EditableScheduleViewerProps> = ({ 
+  schedule, 
+  onSave, 
+  onClose 
+}) => {
   const { groups, establishments, dutyWorkers, confirmSchedule } = useData();
+  const [editedAssignments, setEditedAssignments] = useState(schedule.assignments);
+  const [validationWarnings, setValidationWarnings] = useState<ValidationError[]>([]);
+  const [isModified, setIsModified] = useState(false);
   
   const group = groups.find(g => g.id === schedule.groupId);
   const establishment = establishments.find(e => e.id === group?.establishmentId);
@@ -28,8 +36,9 @@ export const ScheduleViewer: React.FC<ScheduleViewerProps> = ({ schedule, onClos
   // Handler para exportação
   const handleExportPDF = () => {
     if (group && establishment) {
+      const scheduleForExport = { ...schedule, assignments: editedAssignments };
       exportToPDF({
-        schedule,
+        schedule: scheduleForExport,
         group,
         establishment,
         workers
@@ -39,8 +48,9 @@ export const ScheduleViewer: React.FC<ScheduleViewerProps> = ({ schedule, onClos
 
   const handleExportExcel = () => {
     if (group && establishment) {
+      const scheduleForExport = { ...schedule, assignments: editedAssignments };
       exportToExcel({
-        schedule,
+        schedule: scheduleForExport,
         group,
         establishment,
         workers
@@ -50,19 +60,95 @@ export const ScheduleViewer: React.FC<ScheduleViewerProps> = ({ schedule, onClos
 
   const handleConfirmSchedule = () => {
     if (window.confirm('Tem certeza que deseja confirmar esta escala? Uma vez confirmada, não poderá ser editada.')) {
+      const updatedSchedule = { ...schedule, assignments: editedAssignments };
+      onSave(updatedSchedule);
       confirmSchedule(schedule.id);
     }
+  };
+
+  const handleSave = () => {
+    const updatedSchedule = { ...schedule, assignments: editedAssignments };
+    onSave(updatedSchedule);
+  };
+
+  const handleCellClick = (workerId: string, day: number) => {
+    const dayStr = day.toString();
+    const dayAssignments = editedAssignments[dayStr] || [];
+    const existingAssignment = dayAssignments.find(a => a.workerId === workerId);
+    
+    const worker = workers.find(w => w.id === workerId);
+    if (!worker) return;
+
+    // Ciclar entre os turnos possíveis para este trabalhador
+    const availableShifts = worker.preferences.length > 0 ? worker.preferences : ['D', 'N'];
+    
+    let newShift: string | null = null;
+    
+    if (!existingAssignment) {
+      // Sem turno atual, adicionar o primeiro da preferência
+      newShift = availableShifts[0];
+    } else {
+      // Já tem turno, ciclar para o próximo ou remover
+      const currentIndex = availableShifts.indexOf(existingAssignment.shift);
+      if (currentIndex === -1) {
+        newShift = availableShifts[0];
+      } else if (currentIndex < availableShifts.length - 1) {
+        newShift = availableShifts[currentIndex + 1];
+      } else {
+        newShift = null; // Remover turno
+      }
+    }
+
+    // Atualizar assignments
+    const newAssignments = { ...editedAssignments };
+    const newDayAssignments = dayAssignments.filter(a => a.workerId !== workerId);
+    
+    if (newShift) {
+      const shiftConfig = SHIFT_CONFIGS[newShift];
+      const newAssignment: Assignment = {
+        workerId,
+        shift: newShift,
+        hours: shiftConfig.hours
+      };
+
+      // Validar a edição manual
+      const validation = validateManualEdit(
+        newAssignment,
+        day,
+        { ...newAssignments, [dayStr]: [...newDayAssignments, newAssignment] },
+        workers,
+        year,
+        monthNum
+      );
+
+      if (validation.warnings.length > 0) {
+        setValidationWarnings(validation.warnings);
+      } else {
+        setValidationWarnings([]);
+      }
+
+      newDayAssignments.push(newAssignment);
+    }
+    
+    if (newDayAssignments.length > 0) {
+      newAssignments[dayStr] = newDayAssignments;
+    } else {
+      delete newAssignments[dayStr];
+    }
+    
+    setEditedAssignments(newAssignments);
+    setIsModified(true);
   };
 
   // Criar array de dias do mês
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
   // Calcular estatísticas
-  const totalAssignments = Object.values(schedule.assignments)
+  const totalAssignments = Object.values(editedAssignments)
     .reduce((total, dayAssignments) => total + dayAssignments.length, 0);
 
   const workerStats = workers.map(worker => {
-    const assignments = Object.values(schedule.assignments)
+    const assignments = Object.values(editedAssignments)
       .flat()
       .filter(assignment => assignment.workerId === worker.id);
     
@@ -83,21 +169,38 @@ export const ScheduleViewer: React.FC<ScheduleViewerProps> = ({ schedule, onClos
         <div>
           <h2 className="text-xl font-bold text-gray-900 capitalize">{monthName}</h2>
           <p className="text-gray-600">{group?.name} - {establishment?.name}</p>
+          <p className="text-sm text-blue-600 font-medium">Modo de Edição - Clique nas células para alterar turnos</p>
         </div>
         <div className="flex items-center space-x-2">
-          {schedule.status === 'confirmed' ? (
-            <div className="flex items-center text-green-600">
-              <CheckCircle className="w-5 h-5 mr-1" />
-              <span className="text-sm font-medium">Confirmada</span>
-            </div>
-          ) : (
+          {isModified && (
             <div className="flex items-center text-orange-600">
-              <Clock className="w-5 h-5 mr-1" />
-              <span className="text-sm font-medium">Rascunho</span>
+              <Edit className="w-4 h-4 mr-1" />
+              <span className="text-sm font-medium">Modificado</span>
             </div>
           )}
+          <div className="flex items-center text-orange-600">
+            <Clock className="w-5 h-5 mr-1" />
+            <span className="text-sm font-medium">Rascunho</span>
+          </div>
         </div>
       </div>
+
+      {/* Validation Warnings */}
+      {validationWarnings.length > 0 && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <div className="flex items-start">
+            <AlertTriangle className="w-5 h-5 text-yellow-600 mt-0.5 mr-2" />
+            <div>
+              <h3 className="text-sm font-medium text-yellow-800">Avisos de Validação</h3>
+              <ul className="mt-2 text-sm text-yellow-700 space-y-1">
+                {validationWarnings.map((warning, index) => (
+                  <li key={index}>• {warning.message}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Statistics */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -154,20 +257,26 @@ export const ScheduleViewer: React.FC<ScheduleViewerProps> = ({ schedule, onClos
                     </div>
                   </td>
                   {days.map(day => {
-                    const dayAssignments = schedule.assignments[day.toString()] || [];
+                    const dayAssignments = editedAssignments[day.toString()] || [];
                     const workerAssignment = dayAssignments.find(a => a.workerId === worker.id);
                     
                     return (
                       <td key={day} className="px-2 py-3 text-center">
-                        {workerAssignment && (
-                          <div
-                            className={`inline-flex items-center justify-center w-8 h-8 rounded text-xs font-bold text-white`}
-                            style={{ backgroundColor: SHIFT_CONFIGS[workerAssignment.shift].color }}
-                            title={`${SHIFT_CONFIGS[workerAssignment.shift].label} - ${workerAssignment.hours}h`}
-                          >
-                            {workerAssignment.shift}
-                          </div>
-                        )}
+                        <div
+                          className={`w-8 h-8 rounded flex items-center justify-center cursor-pointer transition-colors ${
+                            workerAssignment 
+                              ? 'text-white font-bold text-xs'
+                              : 'border-2 border-dashed border-gray-300 hover:border-blue-400 hover:bg-blue-50'
+                          }`}
+                          style={workerAssignment ? { backgroundColor: SHIFT_CONFIGS[workerAssignment.shift].color } : {}}
+                          onClick={() => handleCellClick(worker.id, day)}
+                          title={workerAssignment 
+                            ? `${SHIFT_CONFIGS[workerAssignment.shift].label} - ${workerAssignment.hours}h (Clique para alterar)`
+                            : 'Clique para adicionar turno'
+                          }
+                        >
+                          {workerAssignment ? workerAssignment.shift : '+'}
+                        </div>
                       </td>
                     );
                   })}
@@ -231,30 +340,33 @@ export const ScheduleViewer: React.FC<ScheduleViewerProps> = ({ schedule, onClos
       </div>
 
       {/* Actions */}
-      <div className="flex justify-end space-x-3">
-        <Button variant="secondary" onClick={onClose}>
-          Fechar
-        </Button>
-        <Button variant="ghost" onClick={handleExportPDF}>
-          <FileText className="w-4 h-4 mr-2" />
-          Exportar PDF
-        </Button>
-        <Button variant="ghost" onClick={handleExportExcel}>
-          <Table className="w-4 h-4 mr-2" />
-          Exportar Excel
-        </Button>
-        {schedule.status === 'draft' && (
-          <>
-            <Button variant="secondary" onClick={handleConfirmSchedule}>
-              <CheckCircle className="w-4 h-4 mr-2" />
-              Confirmar Escala
+      <div className="flex justify-between">
+        <div className="flex space-x-3">
+          <Button variant="secondary" onClick={onClose}>
+            <X className="w-4 h-4 mr-2" />
+            Cancelar
+          </Button>
+          <Button variant="ghost" onClick={handleExportPDF}>
+            <FileText className="w-4 h-4 mr-2" />
+            Exportar PDF
+          </Button>
+          <Button variant="ghost" onClick={handleExportExcel}>
+            <Table className="w-4 h-4 mr-2" />
+            Exportar Excel
+          </Button>
+        </div>
+        <div className="flex space-x-3">
+          {isModified && (
+            <Button variant="secondary" onClick={handleSave}>
+              <Save className="w-4 h-4 mr-2" />
+              Salvar Rascunho
             </Button>
-            <Button>
-              <Edit className="w-4 h-4 mr-2" />
-              Editar Escala
-            </Button>
-          </>
-        )}
+          )}
+          <Button onClick={handleConfirmSchedule}>
+            <CheckCircle className="w-4 h-4 mr-2" />
+            Confirmar Escala
+          </Button>
+        </div>
       </div>
     </div>
   );

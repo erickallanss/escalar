@@ -27,11 +27,13 @@ interface DataContextType {
   addSchedule: (schedule: Omit<Schedule, 'id' | 'createdAt'>) => string;
   updateSchedule: (id: string, schedule: Partial<Schedule>) => void;
   deleteSchedule: (id: string) => void;
+  confirmSchedule: (id: string) => void;
   
   // Helpers
   getGroupsByEstablishment: (establishmentId: string) => Group[];
   getWorkersByGroup: (groupId: string) => DutyWorker[];
   getSchedulesByGroup: (groupId: string) => Schedule[];
+  hasConfirmedSchedule: (groupId: string, month: string) => boolean;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -186,6 +188,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSchedules(prev => prev.filter(s => s.id !== id));
   };
 
+  const confirmSchedule = (id: string) => {
+    setSchedules(prev => prev.map(s => 
+      s.id === id 
+        ? { ...s, status: 'confirmed' as const, confirmedAt: new Date() }
+        : s
+    ));
+  };
+
   // Helpers
   const getGroupsByEstablishment = (establishmentId: string) => {
     return groups.filter(g => g.establishmentId === establishmentId);
@@ -197,6 +207,14 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const getSchedulesByGroup = (groupId: string) => {
     return schedules.filter(s => s.groupId === groupId);
+  };
+
+  const hasConfirmedSchedule = (groupId: string, month: string) => {
+    return schedules.some(s => 
+      s.groupId === groupId && 
+      s.month === month && 
+      s.status === 'confirmed'
+    );
   };
 
   return (
@@ -217,9 +235,11 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
       addSchedule,
       updateSchedule,
       deleteSchedule,
+      confirmSchedule,
       getGroupsByEstablishment,
       getWorkersByGroup,
-      getSchedulesByGroup
+      getSchedulesByGroup,
+      hasConfirmedSchedule
     }}>
       {children}
     </DataContext.Provider>

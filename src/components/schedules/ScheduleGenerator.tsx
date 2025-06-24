@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import { useData } from '../../contexts/DataContext';
 import { Button } from '../ui/Button';
 import { Select } from '../ui/Select';
-import { Input } from '../ui/Input';
-import { generateSchedule, validateScheduleGeneration } from '../../utils/scheduleGenerator';
+import { generateSchedule } from '../../utils/scheduleGenerator';
 import { AlertTriangle, CheckCircle, Calendar } from 'lucide-react';
 
 interface ScheduleGeneratorProps {
@@ -11,7 +10,7 @@ interface ScheduleGeneratorProps {
 }
 
 export const ScheduleGenerator: React.FC<ScheduleGeneratorProps> = ({ onClose }) => {
-  const { groups, establishments, dutyWorkers, addSchedule, getWorkersByGroup } = useData();
+  const { groups, establishments, addSchedule, getWorkersByGroup, hasConfirmedSchedule } = useData();
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -20,6 +19,15 @@ export const ScheduleGenerator: React.FC<ScheduleGeneratorProps> = ({ onClose })
 
   const handleGenerate = async () => {
     if (!selectedGroupId || !selectedMonth) return;
+
+    // Verificar se já existe escala confirmada para este grupo/mês
+    if (hasConfirmedSchedule(selectedGroupId, selectedMonth)) {
+      setValidationErrors([{
+        type: 'error',
+        message: 'Já existe uma escala confirmada para este grupo e mês. Não é possível gerar nova escala.'
+      }]);
+      return;
+    }
 
     setIsGenerating(true);
     

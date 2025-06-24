@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Calendar, Users, Building2, Eye, Edit, Trash2, Download, CheckCircle, Clock } from 'lucide-react';
+import { Plus, Calendar, Users, Eye, Edit, Trash2, Download, CheckCircle, Clock } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
@@ -185,7 +185,7 @@ export const SchedulesList: React.FC = () => {
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {schedule.createdAt.toLocaleDateString('pt-BR')}
+                        {new Date(schedule.createdAt).toLocaleDateString('pt-BR')}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {totalAssignments} plantões
