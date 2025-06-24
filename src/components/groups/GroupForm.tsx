@@ -22,7 +22,7 @@ export const GroupForm: React.FC<GroupFormProps> = ({ group, onClose }) => {
   const [formData, setFormData] = useState({
     name: '',
     establishmentId: '',
-    validShifts: ['D', 'N', 'P', 'ND'] as ShiftType[],
+    validShifts: ['D', 'N'] as ShiftType[],
     defaultMonthlyHours: 144,
     defaultShiftHours: 12
   });
