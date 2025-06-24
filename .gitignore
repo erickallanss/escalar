@@ -23,3 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# Documentation files (implementation status and improvements)
+IMPLEMENTACAO_STATUS.md
+MELHORIAS_IMPLEMENTADAS.md
